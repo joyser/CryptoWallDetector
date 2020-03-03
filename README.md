@@ -18,4 +18,5 @@ A proxy server is required for ccxt to bypass CORs. Current proxy server is http
 ### Major dependency
 Thanks to the guys at [ccxt](https://github.com/ccxt/ccxt)  which makes the tool possible.
 
-
+### contact/ideas/suggestion
+@CryptoCoder4
