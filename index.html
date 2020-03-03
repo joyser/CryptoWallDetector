@@ -1,0 +1,462 @@
+<html>
+    <head>
+        <link rel="stylesheet" href="bulma.css">
+        <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/ccxt@1.18.1364/dist/ccxt.browser.js"></script>
+        <script type="text/javascript" src="https://code.jquery.com/jquery-3.4.1.min.js"></script>
+        <script type="text/javascript" src="https://code.jquery.com/ui/1.12.0/jquery-ui.min.js"></script>
+		<script defer src="https://use.fontawesome.com/releases/v5.3.1/js/all.js"></script>
+        <script>
+
+
+
+
+let exchanges = ccxt.exchanges
+
+
+
+function fillExchangeSelect(){
+
+    //Clear the list
+    $('#exchangeSelect').html("")
+    $('#exchangeSelect').append("<option>Select an exchange...</option>")
+    $('#pairSelect').html("")
+    $('#pairSelect').append("<option>Select an exchange first...</option>")
+
+    var index
+
+    for (index = 0; index < ccxt.exchanges.length - 1; ++index) {
+
+        $('#exchangeSelect').append("<option>"+ccxt.exchanges[index]+"</option>")
+    }
+
+}
+
+$( document ).ready(function() {
+
+    fillExchangeSelect()
+
+    pairs = {}
+    exchanges = {}
+
+    $('#exchangeSelect').on('change', async function() {
+
+        if (ccxt.exchanges.includes(this.value)){
+
+            //Check if exchange already exists in saved exchanges
+            if(!(this.value in exchanges)){
+
+
+				exchanges[this.value] = new ccxt[this.value](
+				{proxy:'https://cors-anywhere.herokuapp.com/','origin': 'foobar'}
+					);
+            }
+
+            exchange = exchanges[this.value]
+
+
+    		$('#thresholdValue').attr("disabled", true);
+    		$('#addPair').attr("disabled", true);
+			$('#pairSelect').html("")
+			$('#pairSelect').append("<option>Loading pairs...</option>")
+			$('#pairSelect').attr("disabled", true);
+
+			exchangePairs = await exchange.loadMarkets(true)
+
+			//Lets populate the next drop down with the pairs..
+			//Clear the list
+			$('#pairSelect').html("")
+			$('#pairSelect').append("<option class=\"pairSelect\">Select Pair...</option>")
+
+			for (var key in exchangePairs) {
+
+				$('#pairSelect').append("<option>"+key+"</option>")
+			}
+
+			$('#pairSelect').attr("disabled", false);
+
+        }
+    });
+
+    $('#pairSelect').on('change', async function() {
+
+    	//Enable the button and threshold field
+    	$('#thresholdValue').attr("disabled", false);
+    	$('#addPair').attr("disabled", false);
+
+    	//Change the unit of the threshold
+    	$('#thresholdValue').val("")
+
+
+    	//var selectedPair = $('#aioConceptName').find(":selected")
+
+    });
+
+    $('#addPair').click(async function(){
+
+
+        let exchangeName = $('#exchangeSelect').val()
+        let pair = $('#pairSelect').val()
+        let thresholdValue = $('#thresholdValue').val()
+
+        if(thresholdValue !=""){
+        	thresholdValue = parseInt(thresholdValue)
+        }else{
+        	thresholdValue=999999999
+        }
+
+        let pairId = exchangeName + '_' + pair.replace('/','')
+
+        if(pairId in pairs){
+
+        	alert('Each pair can only be added once! Seems like its already there.')
+        }else{
+
+			//Check that this exchange exists..
+			if (ccxt.exchanges.includes(exchangeName)){
+
+				//Create the nex exchange which will be used
+				exchange = exchanges[exchangeName]
+
+			}
+
+			//Get the exchange pairs
+			exchangePairs = await exchange.loadMarkets(true)
+
+			pairs[pairId] = {
+				'exchangeObject':exchange,
+				'pair':exchangePairs[pair],
+				'symbol':pair,
+				'thresholdValue':thresholdValue
+			}
+
+			//Add pair to table
+			let newRow = ''
+			newRow += '<tr id="'+pairId+'_row"><td>'+exchangeName+'</td>'
+			newRow += '<td>'+pair+' <span id="'+pairId+'_status" class="icon is-small has-text-success"></span></td>'
+			newRow += '<td><ul style="background-color:#a6d8ff" id="'+pairId+'_largeBids"></ul></td>'
+			newRow += '<td id="'+pairId+'_bid2"></td>'
+			newRow += '<td id="'+pairId+'_bid1"></td>'
+			newRow += '<td id="'+pairId+'_midPrice"></td>'
+			newRow += '<td id="'+pairId+'_ask1"></td>'
+			newRow += '<td id="'+pairId+'_ask2"></td>'
+			newRow += '<td><ul style="background-color:#fac9d1" id="'+pairId+'_largeAsks"></ul></td>'
+			newRow += '<td><a class="delete is-small" id="'+pairId+'_delete"></a>'
+			newRow += '(<span style="text-decoration: underline;color:green" class="thresholdValueSpan" id="'+pairId+'_thresholdValue" contenteditable="true">'+thresholdValue+'</span>)'
+			newRow += '</td></tr>'
+
+			$('#exchangeListBody').append(newRow)
+			$('#'+pairId+'_row').stop().css("background-color", "#FFFF9C").animate({ "backgroundColor": "#FFFFFF"}, 1500);
+
+		}
+
+
+
+    });
+
+    $('#testButton').click(function(){
+
+    	updatePair(Object.keys(pairs)[0])
+    })
+
+    //this function is called to update individual pairs
+    async function updatePair(pairId) {
+
+	  if (pairId in pairs){
+
+
+	  	//Check if the pair is still loading
+	  	if(pairs[pairId]['loading']){
+
+			//Set the loading icon..
+			$('#'+pairId+'_status').removeClass();
+			$('#'+pairId+'_status').addClass('icon has-text-danger is-small');
+			$('#'+pairId+'_status').html('<a class="refresh" id="'+pairId+'_refresh"><i class="fas fa-exclamation-triangle"></i><a/>');
+	  		return
+	  	}
+
+	  	//Set the pair var to loading
+	  	pairs[pairId]['loading']=true
+
+	  	//Set the loading icon..
+	  	$('#'+pairId+'_status').removeClass();
+	  	$('#'+pairId+'_status').addClass('icon has-text-warning is-small');
+	  	$('#'+pairId+'_status').html('<i class="fas fa-spinner fa-pulse"></i>');
+
+	  	//Set the pair var to loading
+	  	pairs[pairId]['loading']=true
+
+
+	  	pairOrderBook = await pairs[pairId]['exchangeObject'].fetchL2OrderBook(pairs[pairId]['symbol'],1000)
+
+	  	//console.log(pairOrderBook)
+
+	  	//Get the mid price between ask and spread
+	  	midPrice = smartAverage(pairOrderBook['asks'][0][0], pairOrderBook['asks'][0][0])
+
+
+	  	bid1=0 //0.5
+	  	bid2=0 //1
+	  	ask1=0 //0.5
+	  	ask2=0 //1
+
+
+      var graphPercents = {
+        0.001:{bids:0, asks:0},
+        0.002:{bids:0, asks:0},
+        0.003:{bids:0, asks:0},
+        0.004:{bids:0, asks:0},
+        0.005:{bids:0, asks:0}
+      };
+
+	  	largeAsks = []
+	  	largeBids = []
+
+	  	//Loop through all asks and bids
+		var asksLength = pairOrderBook['asks'].length;
+		for (var i = 0; i < asksLength; i++) {
+
+			//If within 0.5%
+			if( pairOrderBook['asks'][i][0]/midPrice <1.005 )
+				ask1+=pairOrderBook['asks'][i][1]
+
+			//If within 1%
+			if( pairOrderBook['asks'][i][0]/midPrice <1.01 )
+				ask2+=pairOrderBook['asks'][i][1]
+
+			//If bigger than thresholdValue
+			if (pairOrderBook['asks'][i][1] > pairs[pairId]['thresholdValue'])
+				largeAsks.push(pairOrderBook['asks'][i])
+
+
+      //Loop through percents and see keep track
+      for( var percent in graphPercents ){
+          if( (pairOrderBook['asks'][i][0]/midPrice) < (1+Number(percent) )){
+            graphPercents[percent]['asks']+=pairOrderBook['asks'][i][1];
+          }
+      }
+
+		}
+
+		var bidsLength = pairOrderBook['bids'].length;
+		for (var i = 0; i < bidsLength; i++) {
+
+			//If within 0.5%
+			if( midPrice/pairOrderBook['bids'][i][0] <1.005 )
+				bid1+=pairOrderBook['bids'][i][1]
+
+			//If within 1%
+			if( midPrice/pairOrderBook['bids'][i][0] <1.01 )
+				bid2+=pairOrderBook['bids'][i][1]
+
+			//If bigger than thresholdValue
+			if (pairOrderBook['bids'][i][1] > pairs[pairId]['thresholdValue'])
+				largeBids.push(pairOrderBook['bids'][i])
+		}
+
+
+	  	//Loop through all large asks and bids
+	  	var largeBidsLength = largeBids.length;
+	  	var largeBidsList = ""
+
+		for (var i = 0; i < largeBidsLength; i++) {
+
+	  		//Only add if its within 10% of mid price..
+	  		if((midPrice/largeBids[i][0])<1.1){
+	  			largeBidsList+="<li><b>"+formatBigNumber(largeBids[i][1])+" @ "+largeBids[i][0]+"</b></li>"
+	  		}
+	  	}
+
+	  	var largeAsksLength = largeAsks.length;
+	  	var largeAsksList = ""
+
+		for (var i = 0; i < largeAsksLength; i++) {
+
+	  		//Only add if its within 10% of mid price..
+	  		if((largeAsks[i][0]/midPrice) < 1.1){
+	  			largeAsksList+="<li><b>"+formatBigNumber(largeAsks[i][1])+" @ "+largeAsks[i][0]+"</b></li>"
+	  		}
+	  	}
+
+	  	//Populate the correct row on table..
+		$('#'+pairId+'_bid1').html(formatBigNumber(bid1))
+		$('#'+pairId+'_bid2').html(formatBigNumber(bid2))
+		$('#'+pairId+'_ask1').html(formatBigNumber(ask1))
+		$('#'+pairId+'_ask2').html(formatBigNumber(ask2))
+		$('#'+pairId+'_midPrice').html(midPrice)
+		$('#'+pairId+'_largeBids').html(largeBidsList)
+		$('#'+pairId+'_largeAsks').html(largeAsksList)
+
+
+		//Set the loading icon..
+	  	$('#'+pairId+'_status').removeClass();
+		$('#'+pairId+'_status').addClass('icon has-text-white is-small');
+	  	$('#'+pairId+'_status').html('');
+
+	  	pairs[pairId]['loading']=false
+
+	  }
+	}
+
+	//Function to remove a row..
+	$(document).on("click", ".delete" , function() {
+
+        pairId = this.id.replace('_delete','')
+
+        //Remove the row and the entry from the pairs dictionary..
+        $( "#"+pairId+"_row" ).remove();
+        delete pairs[pairId];
+
+    });
+
+    //Function to remove a row..
+	$(document).on("click", ".refresh" , function() {
+
+        pairId = this.id.replace('_refresh','')
+
+        //Reset the isLoading var so that it will try to update again
+        pairs[pairId]['loading']=false
+        updatePair(pairId)
+
+    });
+
+
+    $(document).on("focus", "[contenteditable]" , function() {
+
+        var $this = $(this);
+		$this.data('before', $this.html());
+		return $this;
+
+    });
+
+    $(document).on("blur keyup paste", "[contenteditable]" , function() {
+
+        var $this = $(this);
+		if ($this.data('before') !== $this.html()) {
+			$this.data('before', $this.html());
+			$this.trigger('change');
+		}
+		return $this;
+    });
+
+    $(document).on("change", "[contenteditable]" , function() {
+
+        var $this = $(this);
+        pairId = this.id.replace('_thresholdValue','')
+		var thresholdValue = $this.html()
+
+		if(thresholdValue && thresholdValue !=""){
+        	thresholdValue = parseInt(thresholdValue)
+        }else{
+        	thresholdValue=999999999
+        }
+
+        pairs[pairId]['thresholdValue'] = thresholdValue
+    });
+
+	function updateAllPairs() {
+
+		for (var key in pairs) {
+
+			updatePair(key)
+		}
+
+	}
+
+	var refreshId = setInterval(updateAllPairs, 5000);
+
+	//Returns average of two numbers
+	function smartAverage(num1, num2){
+	  var e1 = 1;
+	  var e2 = 1;
+	  while (Math.round(num1 * e1) / e1 !== num1) e1 *= 10;
+	  while (Math.round(num2 * e2) / e2 !== num2) e2 *= 10;
+	  numDec1 =  Math.log(e1) / Math.LN10;
+	  numDec2 =  Math.log(e2) / Math.LN10;
+
+	  numDec = Math.max(numDec1, numDec2)
+
+	  return ((num1+num2)/2).toFixed(numDec)
+
+	}
+
+
+	function formatBigNumber(num){
+
+		if (num < 1000){
+
+			return Math.round(num)
+		}else if (num > 999999){
+
+			return (num/1000000).toFixed(1).toString()+"M"
+
+		}else{
+
+			return Math.round(num/1000).toString()+"K"
+		}
+	}
+
+
+});
+
+
+
+        </script>
+    </head>
+    <body>
+
+
+        <div class="container">
+        	<div class="notification">
+            	<div class="control">
+            		<div class="columns">
+            			<div class="column">
+							<div class="select">
+								<select id="exchangeSelect">
+
+								</select>
+							</div>
+						</div>
+						<div class="column">
+							<div class="select">
+								<select id="pairSelect" disabled>
+
+								</select>
+							</div>
+						</div>
+						<div class="column">
+							<input class="input" id="thresholdValue" type="text" placeholder="Order Threshold" disabled>
+						</div>
+						<div class="column">
+							<p class="control">
+								<a id="addPair" class="button is-primary" disabled>
+								  Monitor this pair
+								</a>
+							</p>
+						</div>
+            		</div>
+        		</div>
+        	</div>
+        </div>
+        <div class="container">
+        <table class="table">
+		  <thead>
+			<tr>
+			  <th>Exchange</th>
+			  <th>Pair</th>
+			  <th>Large Bids</th>
+			  <th>Bid 1%</th>
+			  <th>Bid 0.5%</th>
+			  <th>Mid price</th>
+			  <th>Ask 0.5%</th>
+			  <th>Ask 1%</th>
+			  <th>Large Asks</th>
+			  <th>Remove</th>
+			</tr>
+		  </thead>
+		  <tbody id="exchangeListBody">
+
+			</tbody>
+        </table>
+        </div>
+    </body>
+</html>
